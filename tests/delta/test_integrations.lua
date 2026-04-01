@@ -102,6 +102,47 @@ local git_diff_fixture = table.concat({
     " local w = 4",
 }, "\n")
 
+-- A temp git repo with a committed binary file and a working-tree modification to it.
+-- The binary content contains a null byte so git classifies it as binary.
+local setup_tmpdir_binary_file_repo = [[
+    local tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, 'p')
+    vim.fn.system('git -C ' .. tmpdir .. ' init')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.email "test@test.com"')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.name "Test"')
+    -- Write initial binary content: a null byte makes git classify the file as binary
+    vim.fn.system("printf '\\x00\\x01\\x02\\x03' > " .. tmpdir .. "/photo.bin")
+    vim.fn.system('git -C ' .. tmpdir .. ' add photo.bin')
+    vim.fn.system('git -C ' .. tmpdir .. ' commit -m "initial"')
+    -- Modify the binary file so git sees a change
+    vim.fn.system("printf '\\x00\\x01\\x02\\x04' > " .. tmpdir .. "/photo.bin")
+    vim.cmd('cd ' .. tmpdir)
+    vim.cmd('edit ' .. tmpdir .. '/photo.bin')
+    _G.fixture = { tmpdir = tmpdir }
+]]
+
+-- A temp git repo with a new (untracked) .lua file, used to exercise new_file = true.
+local setup_tmpdir_new_file_repo = [[
+    local tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, 'p')
+    vim.fn.system('git -C ' .. tmpdir .. ' init')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.email "test@test.com"')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.name "Test"')
+    -- Commit one existing file so the repo has a valid HEAD
+    local f = io.open(tmpdir .. '/existing.lua', 'w')
+    f:write('local x = 1\n')
+    f:close()
+    vim.fn.system('git -C ' .. tmpdir .. ' add existing.lua')
+    vim.fn.system('git -C ' .. tmpdir .. ' commit -m "initial"')
+    -- Write a new file that git has never seen (untracked)
+    local f2 = io.open(tmpdir .. '/newfile.lua', 'w')
+    f2:write('local a = 1\nlocal b = 2\n')
+    f2:close()
+    vim.cmd('cd ' .. tmpdir)
+    vim.cmd('edit ' .. tmpdir .. '/newfile.lua')
+    _G.fixture = { tmpdir = tmpdir, newfile_path = tmpdir .. '/newfile.lua' }
+]]
+
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
 -- top-level set
 
@@ -307,6 +348,60 @@ T['patch_diff integration']['failure path: empty diffstring returns nil and noti
     eq(result, vim.NIL)
     local notify_called = child.lua_get('_G.fixture.notify_called')
     eq(notify_called, true)
+end
+
+-- ──────────────────────────────────────────────────────────────────────────────────────────────
+-- git_diff binary file integration
+
+T['git_diff binary file integration'] = new_set({
+    hooks = {
+        pre_case = function()
+            child.lua(setup_tmpdir_binary_file_repo)
+        end,
+    },
+})
+
+T['git_diff binary file integration']['happy path: returns valid buffer with one entry and no hunks'] = function()
+    local bufnr = child.lua_get('M.git_diff("HEAD", "photo.bin", {})')
+    eq(type(bufnr), 'number')
+    local is_valid = child.lua_get(string.format('vim.api.nvim_buf_is_valid(%d)', bufnr))
+    eq(is_valid, true)
+    local has_diff_data = child.lua_get(string.format('vim.b[%d].delta_diff_data_set ~= nil', bufnr))
+    eq(has_diff_data, true)
+    local entry_count = child.lua_get(string.format('#vim.b[%d].delta_diff_data_set', bufnr))
+    eq(entry_count, 1)
+    local hunk_count = child.lua_get(string.format('#vim.b[%d].delta_diff_data_set[1].hunks', bufnr))
+    eq(hunk_count, 0)
+    local new_path = child.lua_get(string.format('vim.b[%d].delta_diff_data_set[1].new_path', bufnr))
+    eq(new_path, 'photo.bin')
+end
+
+-- ──────────────────────────────────────────────────────────────────────────────────────────────
+-- git_diff new file integration
+
+T['git_diff new file integration'] = new_set({
+    hooks = {
+        pre_case = function()
+            child.lua(setup_tmpdir_new_file_repo)
+        end,
+    },
+})
+
+T['git_diff new file integration']['happy path: returns valid buffer with one entry flagged as new_file'] = function()
+    local bufnr = child.lua_get('M.git_diff("HEAD", _G.fixture.newfile_path, { new_file = true })')
+    eq(type(bufnr), 'number')
+    local is_valid = child.lua_get(string.format('vim.api.nvim_buf_is_valid(%d)', bufnr))
+    eq(is_valid, true)
+    local has_diff_data = child.lua_get(string.format('vim.b[%d].delta_diff_data_set ~= nil', bufnr))
+    eq(has_diff_data, true)
+    local entry_count = child.lua_get(string.format('#vim.b[%d].delta_diff_data_set', bufnr))
+    eq(entry_count, 1)
+    local is_new_file = child.lua_get(string.format('vim.b[%d].delta_diff_data_set[1].new_file', bufnr))
+    eq(is_new_file, true)
+    local new_path = child.lua_get(string.format('vim.b[%d].delta_diff_data_set[1].new_path', bufnr))
+    eq(new_path, 'newfile.lua')
+    local hunk_count = child.lua_get(string.format('#vim.b[%d].delta_diff_data_set[1].hunks', bufnr))
+    eq(hunk_count > 0, true)
 end
 
 return T
