@@ -166,6 +166,8 @@ end
 --- @return string[] cmd
 M.build_git_diff_cmd_with_flags = function(effective, ref, path)
     local flags = {'git', 'diff'}
+    -- always
+    table.insert(flags, '--full-index')
     if effective.context ~= nil then
         table.insert(flags, string.format('-U%d', effective.context))
     end

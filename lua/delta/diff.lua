@@ -88,8 +88,6 @@ M.get_diff_data = function(diff, language)
     --- @type DiffData
     local file_data = {
         hunks = {},
-        old_path = nil,
-        new_path = nil,
         language = language
     }
 
@@ -99,6 +97,9 @@ M.get_diff_data = function(diff, language)
     local diff_line_num = 0 -- Track line number in diff output
 
     for _, line in ipairs(lines) do
+        if line:match('^Binary files ') then
+            return file_data
+        end
         if line:match('^@@') then
             -- hunk header: @@ -old_start,old_count +new_start,new_count @@ [context]
             local old_info, new_info, context = line:match('^@@[%s]+%-([^%s]+)[%s]+%+([^%s]+)[%s]+@@(.*)$')
@@ -196,14 +197,24 @@ M.get_diff_data_git = function(diff)
     local current_file_lines = {}
     local current_old_path = nil
     local current_new_path = nil
+    local current_is_new_file = nil
+    local current_old_file_mode = nil
+    local current_new_file_mode = nil
+    local current_old_blob_hash = nil
+    local current_new_blob_hash = nil
 
     local function finalize_current_file(file_lines)
-        if #file_lines > 0 and current_new_path then
+        if #file_lines > 0 then
             local file_diff_string = table.concat(file_lines, '\n')
-            local language = utils.get_language_from_filename(current_new_path)
+            local language = current_new_path and utils.get_language_from_filename(current_new_path) or nil
             local file_data = M.get_diff_data(file_diff_string, language)
             file_data.old_path = current_old_path
             file_data.new_path = current_new_path
+            file_data.new_file = current_is_new_file
+            file_data.old_file_mode = current_old_file_mode
+            file_data.new_file_mode = current_new_file_mode
+            file_data.old_blob_hash = current_old_blob_hash
+            file_data.new_blob_hash = current_new_blob_hash
             table.insert(result, file_data)
         end
     end
@@ -214,15 +225,37 @@ M.get_diff_data_git = function(diff)
             -- new file starting: calculate the diff for the old file
             finalize_current_file(current_file_lines)
             current_file_lines = {}
+            -- now try to parse all the metadata we can find for the new file
             local j = i
-            while j <= #lines and not lines[j]:match('^%-%-%-') and not lines[j + 1]:match('^%+%+%+') do
+            while j <= #lines and not (lines[j]:match('^@@') or lines[j]:match('^Binary files ')) do
+                local new_file_mode_hash = lines[j]:match('^new file mode (%d+)')
+                if new_file_mode_hash then
+                    current_is_new_file = true
+                    current_new_file_mode = new_file_mode_hash
+                end
+
+                local old_blob_hash, new_blob_hash, file_mode_hash = lines[j]:match('^index (%w+)..(%w+) (%d*)')
+                current_old_blob_hash = old_blob_hash or current_old_blob_hash
+                current_new_blob_hash = new_blob_hash or current_new_blob_hash
+
+                local old_file_hash = lines[j]:match('^old mode (%d+)')
+                local new_file_hash = lines[j]:match('^new mode (%d+)')
+                -- if match for "new mode" then use that, or if match in index use that, or potentially keep using the match found in "new file mode" 
+                current_new_file_mode = new_file_hash or file_mode_hash or current_new_file_mode
+                -- if match for "old mode" then use that, or if match in index use that
+                current_old_file_mode = old_file_hash or file_mode_hash or current_old_file_mode
+
+                local old_path = lines[j]:match('^%-%-%-[%s]+%w/(.+)$')
+                    or lines[j]:match('^%-%-%-([%s])+/dev/null$')
+                    or lines[j]:match('diff %-%-git[%s]+%w/(.+)[%s]+%w/.+$')
+                local new_path = lines[j]:match('^%+%+%+[%s]+%w/(.+)$')
+                    or lines[j]:match('^%+%+%+([%s])+/dev/null$')
+                    or lines[j]:match('diff %-%-git[%s]+%w/.+[%s]+%w/(.+)$')
+                current_old_path = old_path or current_old_path
+                current_new_path = new_path or current_new_path
                 j = j + 1
             end
-            current_old_path = lines[j]:match('^%-%-%-[%s]+%w/(.+)$') or lines[j]:match(
-                '^%-%-%-([%s])+/dev/null$')
-            current_new_path = lines[j + 1]:match('^%+%+%+[%s]+%w/(.+)$') or lines[j + 1]:match(
-                '^%+%+%+([%s])+/dev/null$')
-            i = j + 2
+            i = j
         else
             -- normal lines of code
             table.insert(current_file_lines, lines[i])
@@ -263,6 +296,9 @@ M.create_formatted_buffer = function(diff_data_set)
             local path_title = file_data.new_path
             if file_data.new_path and file_data.old_path and file_data.new_path ~= file_data.old_path then
                 path_title = file_data.old_path .. " ⟶   " .. file_data.new_path
+            end
+            if file_data.new_file then
+                path_title = 'added: ' .. path_title
             end
             table.insert(output_lines, path_title)
             table.insert(delta_artifacts, { row_number = current_line_num, content = path_title, type = "title" })
@@ -557,6 +593,11 @@ return M
 --- @field old_path string | nil Path to old file (from --- a/...)
 --- @field new_path string | nil Path to new file (from +++ b/...)
 --- @field language string | nil language of file
+--- @field new_file boolean | nil captures the "new file mode"; true if new file
+--- @field old_file_mode number | nil for example, 100644 is a regular file with read/write permissions
+--- @field new_file_mode number | nil for example, 100644 is a regular file with read/write permissions
+--- @field old_blob_hash string | nil  old
+--- @field new_blob_hash string | nil  old
 
 -- originally the types were meant to allow different artifacts to have different highlights.
 -- if I want this to be useful, I would need to update my code to identify artifacts by both row and column.
