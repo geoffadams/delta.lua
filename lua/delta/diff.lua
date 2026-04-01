@@ -225,6 +225,13 @@ M.get_diff_data_git = function(diff)
             -- new file starting: calculate the diff for the old file
             finalize_current_file(current_file_lines)
             current_file_lines = {}
+            current_old_path = nil
+            current_new_path = nil
+            current_is_new_file = nil
+            current_old_file_mode = nil
+            current_new_file_mode = nil
+            current_old_blob_hash = nil
+            current_new_blob_hash = nil
             -- now try to parse all the metadata we can find for the new file
             local j = i
             while j <= #lines and not (lines[j]:match('^@@') or lines[j]:match('^Binary files ')) do
@@ -246,10 +253,8 @@ M.get_diff_data_git = function(diff)
                 current_old_file_mode = old_file_hash or file_mode_hash or current_old_file_mode
 
                 local old_path = lines[j]:match('^%-%-%-[%s]+%w/(.+)$')
-                    or lines[j]:match('^%-%-%-([%s])+/dev/null$')
                     or lines[j]:match('diff %-%-git[%s]+%w/(.+)[%s]+%w/.+$')
                 local new_path = lines[j]:match('^%+%+%+[%s]+%w/(.+)$')
-                    or lines[j]:match('^%+%+%+([%s])+/dev/null$')
                     or lines[j]:match('diff %-%-git[%s]+%w/.+[%s]+%w/(.+)$')
                 current_old_path = old_path or current_old_path
                 current_new_path = new_path or current_new_path

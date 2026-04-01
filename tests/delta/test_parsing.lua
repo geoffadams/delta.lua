@@ -182,6 +182,26 @@ local new_file_mode_git_diff = table.concat({
     "@@ -0,0 +1 @@",
     "+lol"
 }, "\n")
+
+-- two-file diff: first is a new file, second is a regular change
+-- used to verify that new_file / blob hash metadata does not bleed from file 1 to file 2
+local new_file_then_regular_git_diff = table.concat({
+    "diff --git a/added.lua b/added.lua",
+    "new file mode 100644",
+    "index 0000000..aaa1111",
+    "--- /dev/null",
+    "+++ b/added.lua",
+    "@@ -0,0 +1 @@",
+    "+new content",
+    "diff --git a/existing.lua b/existing.lua",
+    "index bbb2222..ccc3333 100644",
+    "--- a/existing.lua",
+    "+++ b/existing.lua",
+    "@@ -1,1 +1,1 @@",
+    "-old",
+    "+new",
+}, "\n")
+
 local git_diff_artifacts_in_content_git_diff_added = table.concat({
     "diff --git a/foo.lua b/foo.lua",
     "index abc1234..def5678 100644",
@@ -635,6 +655,28 @@ T['get_diff_data_git()']['handles new file with mode and hunks'] = function()
     eq(result.hunk_count, 1)
     eq(result.new_mode, '100644')
     eq(result.line_count, 1)
+end
+
+T['get_diff_data_git()']['new_file metadata does not bleed into the following regular file'] = function()
+    child.lua([[_G.fixture.diff = ...]], { new_file_then_regular_git_diff })
+    local result = child.lua_get([[(function()
+        local data = M.get_diff_data_git(_G.fixture.diff)
+        local second = data[2]
+        return {
+            count = #data,
+            second_path = second and second.new_path or nil,
+            second_new_file = second and second.new_file or nil,
+            second_old_blob = second and second.old_blob_hash or nil,
+            second_new_blob = second and second.new_blob_hash or nil,
+        }
+    end)()]])
+    eq(result.count, 2)
+    eq(result.second_path, 'existing.lua')
+    -- new_file flag must not carry over from the first file
+    eq(result.second_new_file, nil)
+    -- blob hashes must come from the second file's index line, not the first file's
+    eq(result.second_old_blob, 'bbb2222')
+    eq(result.second_new_blob, 'ccc3333')
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
