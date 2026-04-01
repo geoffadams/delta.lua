@@ -158,6 +158,30 @@ local git_diff_artifacts_in_content_git_diff_deleted = table.concat({
     " local c = 3",
 }, "\n")
 
+-- binary file diff: no ---/+++ header
+local binary_file_git_diff = table.concat({
+    "diff --git a/photo.jpg b/photo.jpg",
+    "index abc1234..def5678 100644",
+    "Binary files a/photo.jpg and b/photo.jpg differ",
+}, "\n")
+
+-- mode-only change: no ---/+++ header
+local mode_only_git_diff = table.concat({
+    "diff --git a/script.sh b/script.sh",
+    "old mode 100644",
+    "new mode 100755",
+}, "\n")
+
+-- new file
+local new_file_mode_git_diff = table.concat({
+    "diff --git a/newfile.md b/newfile.md",
+    "new file mode 100644",
+    "index 0000000000000000000000000000000000000000..039727ec5a50d0ed45ff67e6f4c9b953bd23c17d",
+    "--- /dev/null",
+    "+++ b/newfile.md",
+    "@@ -0,0 +1 @@",
+    "+lol"
+}, "\n")
 local git_diff_artifacts_in_content_git_diff_added = table.concat({
     "diff --git a/foo.lua b/foo.lua",
     "index abc1234..def5678 100644",
@@ -350,6 +374,18 @@ GetDiffData.get_diff_data__property_cases = {
     {
         name = 'lines that start with a plus but arent added',
         diff = "@@ -5,3 +4,0 @@\n +line1\n-line2\n line3",
+    },
+    {
+        name = 'binary file diff (no hunks)',
+        diff = "Binary files a/photo.jpg and b/photo.jpg differ",
+    },
+    {
+        name = 'mode-only change (no content)',
+        diff = "",
+    },
+    {
+        name = 'new file with single added line',
+        diff = "@@ -0,0 +1 @@\n+new line",
     },
 }
 
@@ -557,6 +593,279 @@ T['get_diff_data_git()']['returns one entry per file with mnemonic prefix'] = fu
     eq(result.count, 2)
     eq(result.first, 'foo.lua')
     eq(result.second, 'bar.py')
+end
+
+T['get_diff_data_git()']['handles binary file diff (no hunks)'] = function()
+    child.lua([[_G.fixture.diff = ...]], { binary_file_git_diff })
+    local result = child.lua_get([[(function()
+        local data = M.get_diff_data_git(_G.fixture.diff)
+        return { count = #data, new_path = data[1].new_path, hunk_count = #data[1].hunks }
+    end)()]])
+    eq(result.count, 1)
+    eq(result.new_path, 'photo.jpg')
+    eq(result.hunk_count, 0)
+end
+
+T['get_diff_data_git()']['handles mode-only change (no content lines to parse)'] = function()
+    child.lua([[_G.fixture.diff = ...]], { mode_only_git_diff })
+    local result = child.lua_get([[(function()
+        local data = M.get_diff_data_git(_G.fixture.diff)
+        -- mode-only changes have no content lines, so they're not added to result
+        return { count = #data }
+    end)()]])
+    eq(result.count, 0)
+end
+
+T['get_diff_data_git()']['handles new file with mode and hunks'] = function()
+    child.lua([[_G.fixture.diff = ...]], { new_file_mode_git_diff })
+    local result = child.lua_get([[(function()
+        local data = M.get_diff_data_git(_G.fixture.diff)
+        return {
+            count = #data,
+            new_path = data[1] and data[1].new_path or nil,
+            is_new = data[1] and data[1].new_file or nil,
+            hunk_count = data[1] and #data[1].hunks or nil,
+            new_mode = data[1] and data[1].new_file_mode or nil,
+            line_count = data[1] and data[1].hunks[1] and #data[1].hunks[1].lines or 0
+        }
+    end)()]])
+    eq(result.count, 1)
+    eq(result.new_path, 'newfile.md')
+    eq(result.is_new, true)
+    eq(result.hunk_count, 1)
+    eq(result.new_mode, '100644')
+    eq(result.line_count, 1)
+end
+
+-- ──────────────────────────────────────────────────────────────────────────────────────────────
+-- get_diff_data_git() - property based tests
+
+local GetDiffDataGit = {}
+
+-- Curated property test cases that cover different diff scenarios
+GetDiffDataGit.get_diff_data_git__property_cases = {
+    {
+        name = 'single file with regular changes',
+        diff = table.concat({
+            "diff --git a/test.lua b/test.lua",
+            "index abc1234..def5678 100644",
+            "--- a/test.lua",
+            "+++ b/test.lua",
+            "@@ -1,2 +1,2 @@",
+            "-old line",
+            "+new line",
+            " context",
+        }, "\n"),
+    },
+    {
+        name = 'multi-file diff',
+        diff = table.concat({
+            "diff --git a/file1.lua b/file1.lua",
+            "index abc1234..def5678 100644",
+            "--- a/file1.lua",
+            "+++ b/file1.lua",
+            "@@ -1,1 +1,1 @@",
+            "-old",
+            "+new",
+            "diff --git a/file2.py b/file2.py",
+            "index def5678..abc9012 100644",
+            "--- a/file2.py",
+            "+++ b/file2.py",
+            "@@ -5,1 +5,1 @@",
+            "-python",
+            "+Python",
+        }, "\n"),
+    },
+    {
+        name = 'binary file',
+        diff = table.concat({
+            "diff --git a/image.png b/image.png",
+            "index abc1234..def5678 100644",
+            "Binary files a/image.png and b/image.png differ",
+        }, "\n"),
+    },
+    {
+        name = 'new file',
+        diff = table.concat({
+            "diff --git a/newfile.txt b/newfile.txt",
+            "new file mode 100644",
+            "index 0000000..abc1234 100644",
+            "--- /dev/null",
+            "+++ b/newfile.txt",
+            "@@ -0,0 +1,1 @@",
+            "+new content",
+        }, "\n"),
+    },
+    {
+        name = 'multiple hunks in single file',
+        diff = table.concat({
+            "diff --git a/code.lua b/code.lua",
+            "index abc1234..def5678 100644",
+            "--- a/code.lua",
+            "+++ b/code.lua",
+            "@@ -1,2 +1,2 @@",
+            "-old1",
+            "+new1",
+            " context",
+            "@@ -10,2 +10,2 @@",
+            "-old2",
+            "+new2",
+            " context2",
+        }, "\n"),
+    },
+}
+
+GetDiffDataGit.properties = {}
+
+-- Property: every entry in result has old_path and new_path set correctly
+-- Returns true on success, or an error string on the first violation
+GetDiffDataGit.properties.paths_are_parsed = [[(function()
+    local diff = _G.fixture.diff
+    local result = M.get_diff_data_git(diff)
+    
+    for idx, entry in ipairs(result) do
+        -- For binary files and mode-only changes, paths should still be extracted from the diff header
+        if not entry.new_path then
+            return 'entry ' .. idx .. ': new_path is nil'
+        end
+        -- old_path may be nil for new files, but should exist otherwise
+        if entry.new_path and not entry.old_path and not entry.new_file then
+            -- Only new files can have nil old_path
+            return 'entry ' .. idx .. ': old_path is nil but not a new file'
+        end
+    end
+    return true
+end)()]]
+
+-- Property: every file has correct metadata (new_file, old_file_mode, new_file_mode, blob hashes)
+-- Returns true on success
+GetDiffDataGit.properties.metadata_is_captured = [[(function()
+    local diff = _G.fixture.diff
+    local result = M.get_diff_data_git(diff)
+    
+    for idx, entry in ipairs(result) do
+        -- For new files, new_file should be true
+        if entry.new_file == true then
+            -- New files should have some hash information if they have hunks
+            if #entry.hunks > 0 and not entry.new_blob_hash then
+                return 'new file entry ' .. idx .. ' with hunks: new_blob_hash not captured'
+            end
+        end
+        
+        -- For regular files, both old and new blob hashes should be captured if there are hunks
+        if not entry.new_file and #entry.hunks > 0 then
+            if not entry.old_blob_hash then
+                return 'entry ' .. idx .. ' with hunks: old_blob_hash not captured'
+            end
+            if not entry.new_blob_hash then
+                return 'entry ' .. idx .. ' with hunks: new_blob_hash not captured'
+            end
+        end
+        
+        -- Blob hashes should match expected pattern (hex characters) if present
+        if entry.old_blob_hash and not entry.old_blob_hash:match('^%x+$') then
+            return 'entry ' .. idx .. ': old_blob_hash is not hex: ' .. entry.old_blob_hash
+        end
+        if entry.new_blob_hash and not entry.new_blob_hash:match('^%x+$') then
+            return 'entry ' .. idx .. ': new_blob_hash is not hex: ' .. entry.new_blob_hash
+        end
+    end
+    return true
+end)()]]
+
+-- Property: result array size matches number of files in the diff
+-- Returns true on success
+GetDiffDataGit.properties.correct_file_count = [[(function()
+    local diff = _G.fixture.diff
+    local lines = vim.split(diff, '\n', { plain = true })
+    
+    -- Count unique "diff --git" markers (one per file)
+    local expected_count = 0
+    for _, line in ipairs(lines) do
+        if line:match('^diff %-%-git') then
+            expected_count = expected_count + 1
+        end
+    end
+    
+    local result = M.get_diff_data_git(diff)
+    if #result ~= expected_count then
+        return 'expected ' .. expected_count .. ' files but got ' .. #result
+    end
+    return true
+end)()]]
+
+-- Property: hunks are empty for binary files and mode-only changes; non-empty for regular diffs
+-- Returns true on success
+GetDiffDataGit.properties.hunks_match_diff_type = [[(function()
+    local diff = _G.fixture.diff
+    local lines = vim.split(diff, '\n', { plain = true })
+    local result = M.get_diff_data_git(diff)
+    
+    for idx, entry in ipairs(result) do
+        local is_binary = false
+        local has_hunk_headers = false
+        
+        -- Check if this file is binary
+        for _, line in ipairs(lines) do
+            if line:match('^Binary files') then
+                is_binary = true
+                break
+            end
+            if line:match('^@@') then
+                has_hunk_headers = true
+                break
+            end
+        end
+        
+        -- Binary files should have no hunks
+        if is_binary and #entry.hunks > 0 then
+            return 'binary file entry ' .. idx .. ' should have no hunks'
+        end
+        
+        -- Files with hunk headers should have hunks
+        if has_hunk_headers and #entry.hunks == 0 then
+            return 'entry ' .. idx .. ' with hunk headers should have hunks'
+        end
+    end
+    return true
+end)()]]
+
+-- Property: language is correctly inferred from file extension
+-- Returns true on success
+GetDiffDataGit.properties.language_inference = [[(function()
+    local diff = _G.fixture.diff
+    local result = M.get_diff_data_git(diff)
+    
+    for idx, entry in ipairs(result) do
+        if not entry.new_path then goto continue end
+        
+        -- Check that language matches the extension (if we know about it)
+        local ext = entry.new_path:match('%.([^%.]+)$')
+        if ext then
+            local expected_language = nil
+            if ext == 'lua' then expected_language = 'lua'
+            elseif ext == 'py' then expected_language = 'python'
+            end
+            
+            if expected_language and entry.language ~= expected_language then
+                return 'entry ' .. idx .. ' with extension .' .. ext .. ' has language=' .. tostring(entry.language) .. ' (expected ' .. expected_language .. ')'
+            end
+        end
+        
+        ::continue::
+    end
+    return true
+end)()]]
+
+T['get_diff_data_git() properties'] = new_set()
+for prop_name, prop in pairs(GetDiffDataGit.properties) do
+    for _, case in ipairs(GetDiffDataGit.get_diff_data_git__property_cases) do
+        T['get_diff_data_git() properties'][prop_name .. ': ' .. case.name] = function()
+            child.lua([[_G.fixture.diff = ...]], { case.diff })
+            local result = child.lua_get(prop)
+            eq(result, true)
+        end
+    end
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
