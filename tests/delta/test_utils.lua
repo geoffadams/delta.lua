@@ -113,7 +113,7 @@ T['get_git_root()']['uses path directly when it is a directory'] = function()
     eq(dir, '/some/dir')
 end
 
-T['get_git_root()']['asserts and throws when git returns a non-zero/non-one exit code'] = function()
+T['get_git_root()']['asserts and throws when git returns a non-zero exit code'] = function()
     child.lua([[
         vim.system = function(_cmd, _opts)
             return { wait = function()
@@ -130,7 +130,7 @@ T['get_git_root()']['asserts and throws when git returns a non-zero/non-one exit
     eq(ok, false)
 end
 
-T['get_git_root()']['does not throw when git returns code 1'] = function()
+T['get_git_root()']['asserts and throws when git returns code 1'] = function()
     child.lua([[
         vim.system = function(_cmd, _opts)
             return { wait = function()
@@ -144,7 +144,7 @@ T['get_git_root()']['does not throw when git returns code 1'] = function()
         return ok
     end)()]])
 
-    eq(ok, true)
+    eq(ok, false)
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────────────────────

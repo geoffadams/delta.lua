@@ -214,7 +214,7 @@ M.get_git_root = function(path)
     -- returns the directory containing the path
     local file_dir = vim.fn.isdirectory(path) == 1 and path or vim.fn.fnamemodify(path, ':h')
     local rev_parse_result = vim.system({ 'git', '-C', file_dir, 'rev-parse', '--show-toplevel' }):wait()
-    assert(rev_parse_result.code == 0 or rev_parse_result.code == 1, 'Not in a git repository. Cannot open git diff delta.lua buffer. - ' .. rev_parse_result.stderr)
+    assert(rev_parse_result.code == 0, 'Not in a git repository. - ' .. rev_parse_result.stderr)
     return vim.trim(rev_parse_result.stdout)
 end
 
