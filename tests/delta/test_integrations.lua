@@ -102,6 +102,28 @@ local git_diff_fixture = table.concat({
     " local w = 4",
 }, "\n")
 
+-- A temp git repo with a working-tree change, but cwd set to /tmp (outside any git repo).
+-- The path to the file is stored in _G.fixture.filepath so tests can pass it explicitly.
+local setup_tmpdir_git_repo_cwd_outside = [[
+    local tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, 'p')
+    vim.fn.system('git -C ' .. tmpdir .. ' init')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.email "test@test.com"')
+    vim.fn.system('git -C ' .. tmpdir .. ' config user.name "Test"')
+    local f = io.open(tmpdir .. '/test.lua', 'w')
+    f:write('local x = 1\nlocal y = 2\n')
+    f:close()
+    vim.fn.system('git -C ' .. tmpdir .. ' add test.lua')
+    vim.fn.system('git -C ' .. tmpdir .. ' commit -m "initial"')
+    -- Make a working-tree change
+    local f2 = io.open(tmpdir .. '/test.lua', 'w')
+    f2:write('local x = 1\nlocal y = 99\n')
+    f2:close()
+    -- Deliberately set cwd to /tmp, which is outside any git repo
+    vim.cmd('cd /tmp')
+    _G.fixture = { tmpdir = tmpdir, filepath = tmpdir .. '/test.lua' }
+]]
+
 -- A temp git repo with a committed binary file and a working-tree modification to it.
 -- The binary content contains a null byte so git classifies it as binary.
 local setup_tmpdir_binary_file_repo = [[
@@ -202,21 +224,14 @@ T['git_diff integration']['happy path: full sequence sets statuscolumn on window
     eq(statuscolumn:find('delta.statuscolumn', 1, true) ~= nil, true)
 end
 
-T['git_diff integration']['failure path: not in a git repo returns nil and notifies'] = function()
+T['git_diff integration']['failure path: not in a git repo throws an error'] = function()
     -- cd to /tmp which is never inside a git repo
-    child.lua([[
-        _G.fixture.notify_called = false
-        _G.fixture.notify_msg = nil
-        vim.notify = function(msg, _level)
-            _G.fixture.notify_called = true
-            _G.fixture.notify_msg = msg
-        end
-        vim.cmd('cd /tmp')
-    ]])
-    local result = child.lua_get('M.git_diff("HEAD", nil, {})')
-    eq(result, vim.NIL)
-    local notify_called = child.lua_get('_G.fixture.notify_called')
-    eq(notify_called, true)
+    child.lua([[vim.cmd('cd /tmp')]])
+    local ok = child.lua_get([[(function()
+        local ok, _ = pcall(M.git_diff, 'HEAD', nil, {})
+        return ok
+    end)()]])
+    eq(ok, false)
 end
 
 T['git_diff integration']['failure path: no working-tree changes returns nil and notifies'] = function()
@@ -234,6 +249,24 @@ T['git_diff integration']['failure path: no working-tree changes returns nil and
     eq(result, vim.NIL)
     local notify_called = child.lua_get('_G.fixture.notify_called')
     eq(notify_called, true)
+end
+
+T['git_diff integration']['happy path: cwd outside git repo but path inside returns valid buffer'] = function()
+    -- Override fixture: cwd is /tmp, path points into the real git repo
+    child.lua(setup_tmpdir_git_repo_cwd_outside)
+    local bufnr = child.lua_get([[(function()
+        local filepath = _G.fixture.filepath
+        local ok, val = pcall(M.git_diff, 'HEAD', filepath, {})
+        if not ok then return nil end
+        return val
+    end)()]])
+    eq(type(bufnr), 'number')
+    local is_valid = child.lua_get(string.format('vim.api.nvim_buf_is_valid(%d)', bufnr))
+    eq(is_valid, true)
+    local has_diff_data = child.lua_get(string.format('vim.b[%d].delta_diff_data_set ~= nil', bufnr))
+    eq(has_diff_data, true)
+    local git_root_set = child.lua_get(string.format('vim.b[%d].git_root ~= nil', bufnr))
+    eq(git_root_set, true)
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────────────────────

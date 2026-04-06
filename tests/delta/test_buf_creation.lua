@@ -74,16 +74,14 @@ local T = new_set({
                     },
                 }
                 package.loaded['delta.utils'] = {
-                    build_git_diff_cmd_with_flags = function(_effective, _ref, _path)
+                    build_git_diff_cmd_with_flags = function(_effective, _ref, _git_root, _path)
                         return { 'git', 'diff', 'HEAD' }
                     end,
+                    get_git_root = function(_path) return '/fake/git/root' end,
                     get_window_width = function(_winid) return 80 end,
                     apply_highlights  = function(_bufnr, _highlights) end,
-                    get_language_from_filename = function(filename)
-                        local ext = filename:match('%.([^%.]+)$')
-                        local map = { lua = 'lua', py = 'python' }
-                        return map[ext]
-                    end,
+                    get_language_from_filename = function(_filename) return 'lua' end,
+                    read_file_lines = function(_filepath) return {} end,
                 }
                 package.loaded['delta.utils_treesitter'] = {
                     get_treesitter_highlight_captures = function(_content, _lang) return {} end,
@@ -93,10 +91,6 @@ local T = new_set({
                 package.loaded['delta.utils_highlighting'] = {
                     get_highlights_multiple_files = function(_files, _opts) return {} end,
                 }
-
-                vim.fn.systemlist = function(_cmd) return {} end
-                -- Note: vim.v.shell_error is read-only; stubbing systemlist above
-                -- prevents the real shell command from running, keeping shell_error = 0
             ]])
             child.lua([[M = require('delta.diff')]])
             child.lua([[_G.fixture = {}]])
@@ -117,9 +111,16 @@ T['git_diff()'] = new_set({
                 vim.system = function(_cmd, _opts)
                     return { wait = function() return { code = 0, stdout = '', stderr = '' } end }
                 end
-                -- Stub systemlist to return a fake git root; this also prevents the real
-                -- shell command from running, keeping vim.v.shell_error at 0 (its default)
-                vim.fn.systemlist = function(_cmd) return { '/fake/git/root' } end
+                M.get_diff_data_git = function(_diffstring) return { _G.fixture.fake_diff_data } end
+                M.create_formatted_buffer = function(_data)
+                    _G.fixture.create_formatted_buffer_called = true
+                    _G.fixture.create_formatted_buffer_data = _data
+                    -- return a real scratch buffer so vim.b[buf_id] assignments in git_diff succeed
+                    local bufnr = vim.api.nvim_create_buf(false, true)
+                    _G.fixture.fake_bufnr = bufnr
+                    return bufnr
+                end
+                _G.fixture.fake_diff_data = { new_path = 'foo.lua', hunks = {} }
             ]])
         end,
     },
@@ -130,121 +131,172 @@ T['git_diff()']['returns nil when git produces no output'] = function()
     eq(is_nil, true)
 end
 
-T['git_diff()']['returns valid bufnr when diff has changes'] = function()
+T['git_diff()']['returns the bufnr from create_formatted_buffer when diff has changes'] = function()
     child.lua([[
-        _G.fixture.diff_output = ...
         vim.system = function(_cmd, _opts)
-            return { wait = function() return { code = 0, stdout = _G.fixture.diff_output, stderr = '' } end }
+            return { wait = function() return { code = 0, stdout = 'some diff output', stderr = '' } end }
         end
-    ]], { git_diff_fixture })
-    local valid = child.lua_get([[(function()
-        local bufnr = M.git_diff('HEAD', nil, {})
-        return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
-    end)()]])
-    eq(valid, true)
+        _G.fixture.returned_bufnr = M.git_diff('HEAD', nil, {})
+    ]])
+    local matches = child.lua_get([[_G.fixture.returned_bufnr == _G.fixture.fake_bufnr]])
+    eq(matches, true)
 end
 
-T['git_diff()']['delta_diff_data_set contains the parsed file path'] = function()
+T['git_diff()']['passes diff output to get_diff_data_git'] = function()
     child.lua([[
-        _G.fixture.diff_output = ...
+        _G.fixture.get_diff_data_git_input = nil
+        local diff_output = ...
         vim.system = function(_cmd, _opts)
-            return { wait = function() return { code = 0, stdout = _G.fixture.diff_output, stderr = '' } end }
+            return { wait = function() return { code = 0, stdout = diff_output, stderr = '' } end }
+        end
+        M.get_diff_data_git = function(diffstring)
+            _G.fixture.get_diff_data_git_input = diffstring
+            return { _G.fixture.fake_diff_data }
         end
     ]], { git_diff_fixture })
-    local path = child.lua_get([[(function()
-        local bufnr = M.git_diff('HEAD', nil, {})
-        return vim.b[bufnr].delta_diff_data_set[1].new_path
+    child.lua([[M.git_diff('HEAD', nil, {})]])
+    local input = child.lua_get([[_G.fixture.get_diff_data_git_input]])
+    eq(input, git_diff_fixture)
+end
+
+T['git_diff()']['sets git_root buffer variable on the returned buffer'] = function()
+    child.lua([[
+        vim.system = function(_cmd, _opts)
+            return { wait = function() return { code = 0, stdout = 'some diff output', stderr = '' } end }
+        end
+        M.git_diff('HEAD', nil, {})
+    ]])
+    local git_root_set = child.lua_get([[vim.b[_G.fixture.fake_bufnr].git_root ~= nil]])
+    eq(git_root_set, true)
+end
+
+T['git_diff()']['throws an error when git diff returns a failing exit code'] = function()
+    child.lua([[
+        vim.system = function(_cmd, _opts)
+            return { wait = function() return { code = 128, stdout = '', stderr = 'fatal: not a repo' } end }
+        end
+    ]])
+    local ok = child.lua_get([[(function()
+        local ok, _ = pcall(M.git_diff, 'HEAD', nil, {})
+        return ok
     end)()]])
-    eq(path, 'foo.lua')
+    eq(ok, false)
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
 -- text_diff() - example based tests
 
-T['text_diff()'] = new_set()
+T['text_diff()'] = new_set({
+    hooks = {
+        pre_case = function()
+            child.lua([[
+                M.get_diff_data = function(_diffstring, _language)
+                    _G.fixture.get_diff_data_called = true
+                    return _G.fixture.fake_diff_data
+                end
+                M.create_formatted_buffer = function(_data)
+                    _G.fixture.create_formatted_buffer_called = true
+                    return _G.fixture.fake_bufnr
+                end
+                _G.fixture.fake_bufnr = 42
+                _G.fixture.fake_diff_data = { language = 'lua', hunks = {} }
+            ]])
+        end,
+    },
+})
 
-T['text_diff()']['returns valid bufnr for two differing strings'] = function()
-    local valid = child.lua_get([[(function()
-        local bufnr = M.text_diff('local x = 1\nlocal y = 2', 'local x = 1\nlocal y = 10', 'lua', {})
-        return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
-    end)()]])
-    eq(valid, true)
+T['text_diff()']['returns the bufnr from create_formatted_buffer'] = function()
+    local bufnr = child.lua_get([[M.text_diff('local x = 1', 'local x = 2', 'lua', {})]])
+    eq(bufnr, 42)
 end
 
-T['text_diff()']['buffer is not modifiable'] = function()
-    local modifiable = child.lua_get([[(function()
-        local bufnr = M.text_diff('local x = 1\nlocal y = 2', 'local x = 1\nlocal y = 10', 'lua', {})
-        return vim.api.nvim_get_option_value('modifiable', { buf = bufnr })
-    end)()]])
-    eq(modifiable, false)
+T['text_diff()']['passes diff output to get_diff_data'] = function()
+    child.lua([[
+        _G.fixture.get_diff_data_input = nil
+        M.get_diff_data = function(diffstring, _language)
+            _G.fixture.get_diff_data_input = diffstring
+            return _G.fixture.fake_diff_data
+        end
+    ]])
+    child.lua([[M.text_diff('local x = 1\n', 'local x = 2\n', 'lua', {})]])
+    local input = child.lua_get([[_G.fixture.get_diff_data_input]])
+    eq(input ~= nil, true)
 end
 
 T['text_diff()']['falls back to vim.diff when vim.text is unavailable'] = function()
     local used_vim_diff = child.lua_get([[(function()
         local called = false
         vim.text = nil
-        vim.diff = function(s1, s2, opts)
+        vim.diff = function(_s1, _s2, _opts)
             called = true
-            return '@@ -1,2 +1,2 @@\n local x = 1\n-local y = 2\n+local y = 10\n'
+            return '@@ -1,1 +1,1 @@\n-local x = 1\n+local x = 2\n'
         end
-        M.text_diff('local x = 1\nlocal y = 2', 'local x = 1\nlocal y = 10', 'lua', {})
+        M.text_diff('local x = 1', 'local x = 2', 'lua', {})
         return called
     end)()]])
     eq(used_vim_diff, true)
 end
 
-T['text_diff()']['delta_diff_data_set contains a hunk for the changed line'] = function()
-    local hunk_count = child.lua_get([[(function()
-        local bufnr = M.text_diff('local x = 1\nlocal y = 2', 'local x = 1\nlocal y = 10', 'lua', {})
-        return #vim.b[bufnr].delta_diff_data_set[1].hunks
-    end)()]])
-    eq(hunk_count, 1)
-end
-
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
 -- patch_diff() - example based tests
 
-T['patch_diff()'] = new_set()
+T['patch_diff()'] = new_set({
+    hooks = {
+        pre_case = function()
+            child.lua([[
+                M.get_diff_data = function(_diffstring, _language)
+                    return _G.fixture.fake_diff_data
+                end
+                M.get_diff_data_git = function(_diffstring)
+                    return { _G.fixture.fake_diff_data }
+                end
+                M.create_formatted_buffer = function(_data)
+                    _G.fixture.create_formatted_buffer_data = _data
+                    return _G.fixture.fake_bufnr
+                end
+                _G.fixture.fake_bufnr = 42
+                _G.fixture.fake_diff_data = { new_path = 'foo.lua', hunks = {} }
+            ]])
+        end,
+    },
+})
 
 T['patch_diff()']['returns nil when diffstring is empty'] = function()
     local is_nil = child.lua_get([[M.patch_diff('', false, 'lua', {}) == nil]])
     eq(is_nil, true)
 end
 
-T['patch_diff()']['plain unified diff: returns valid bufnr'] = function()
+T['patch_diff()']['plain unified diff: returns bufnr from create_formatted_buffer'] = function()
     child.lua([[_G.fixture.diff_input = ...]], { patch_fixture })
-    local valid = child.lua_get([[(function()
-        local bufnr = M.patch_diff(_G.fixture.diff_input, false, 'lua', {})
-        return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
-    end)()]])
-    eq(valid, true)
+    local bufnr = child.lua_get([[M.patch_diff(_G.fixture.diff_input, false, 'lua', {})]])
+    eq(bufnr, 42)
 end
 
-T['patch_diff()']['plain unified diff: buffer has delta_diff_data_set'] = function()
+T['patch_diff()']['plain unified diff: wraps result of get_diff_data in a table for create_formatted_buffer'] = function()
     child.lua([[_G.fixture.diff_input = ...]], { patch_fixture })
-    local has_data = child.lua_get([[(function()
-        local bufnr = M.patch_diff(_G.fixture.diff_input, false, 'lua', {})
-        return vim.b[bufnr].delta_diff_data_set ~= nil
-    end)()]])
-    eq(has_data, true)
+    child.lua([[M.patch_diff(_G.fixture.diff_input, false, 'lua', {})]])
+    local data_is_table = child.lua_get([[type(_G.fixture.create_formatted_buffer_data) == 'table']])
+    eq(data_is_table, true)
 end
 
-T['patch_diff()']['git diff format: returns valid bufnr'] = function()
+T['patch_diff()']['git diff format: returns bufnr from create_formatted_buffer'] = function()
     child.lua([[_G.fixture.diff_input = ...]], { git_diff_fixture })
-    local valid = child.lua_get([[(function()
-        local bufnr = M.patch_diff(_G.fixture.diff_input, true, nil, {})
-        return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
-    end)()]])
-    eq(valid, true)
+    local bufnr = child.lua_get([[M.patch_diff(_G.fixture.diff_input, true, nil, {})]])
+    eq(bufnr, 42)
 end
 
-T['patch_diff()']['git diff format: delta_diff_data_set has correct file path'] = function()
-    child.lua([[_G.fixture.diff_input = ...]], { git_diff_fixture })
-    local path = child.lua_get([[(function()
-        local bufnr = M.patch_diff(_G.fixture.diff_input, true, nil, {})
-        return vim.b[bufnr].delta_diff_data_set[1].new_path
-    end)()]])
-    eq(path, 'foo.lua')
+T['patch_diff()']['git diff format: passes diffstring to get_diff_data_git'] = function()
+    child.lua([[
+        _G.fixture.get_diff_data_git_input = nil
+        M.get_diff_data_git = function(diffstring)
+            _G.fixture.get_diff_data_git_input = diffstring
+            return { _G.fixture.fake_diff_data }
+        end
+        _G.fixture.diff_input = ...
+    ]], { git_diff_fixture })
+    child.lua([[M.patch_diff(_G.fixture.diff_input, true, nil, {})]])
+    local input = child.lua_get([[_G.fixture.get_diff_data_git_input]])
+    eq(input, git_diff_fixture)
 end
 
 return T
