@@ -17,7 +17,7 @@ M.git_diff = function(ref, path, opts)
     end
     local diff_cmd = utils.build_git_diff_cmd_with_flags(effective, ref, git_root, path)
     local diff_result = vim.system(diff_cmd):wait()
-    assert(diff_result.code == 0 or diff_result.code == 1, 'An error occured while running git diff - ' .. diff_result.stderr)
+    assert(diff_result.code == 0 or diff_result.code == 1, 'An error occurred while running git diff - ' .. diff_result.stderr)
     local diffstring = vim.trim(diff_result.stdout)
 
     if diffstring == '' then
