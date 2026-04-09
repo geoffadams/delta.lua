@@ -11,20 +11,13 @@ local config = require('delta.config')
 --- @return number | nil bufnr
 M.git_diff = function(ref, path, opts)
     local effective = vim.tbl_deep_extend('force', config.options, opts or {})
-    local git_root = vim.fn.systemlist('git rev-parse --show-toplevel')[1]
-    if vim.v.shell_error ~= 0 then
-        vim.notify('Not in a git repository', vim.log.levels.ERROR)
-        return
-    end
+    local git_root = utils.get_git_root(path or vim.fn.getcwd())
     if effective.new_file and path and path:sub(1, 1) == '/' then
         path = path:sub(#git_root + 2)
     end
-    local diff_cmd = utils.build_git_diff_cmd_with_flags(effective, ref, path)
-    local diff_result = vim.system(diff_cmd, { cwd = git_root }):wait()
-    if diff_result.code ~= 0 and diff_result.code ~= 1 then
-        vim.notify('An error occured while running git diff - ' .. tostring(diff_result.stderr), vim.log.levels.ERROR)
-        return
-    end
+    local diff_cmd = utils.build_git_diff_cmd_with_flags(effective, ref, git_root, path)
+    local diff_result = vim.system(diff_cmd):wait()
+    assert(diff_result.code == 0 or diff_result.code == 1, 'An error occurred while running git diff - ' .. diff_result.stderr)
     local diffstring = vim.trim(diff_result.stdout)
 
     if diffstring == '' then
@@ -34,6 +27,7 @@ M.git_diff = function(ref, path, opts)
 
     local data = M.get_diff_data_git(diffstring)
     local buf_id = M.create_formatted_buffer(data)
+    vim.b[buf_id].git_root = git_root
     return buf_id
 end
 
@@ -429,14 +423,7 @@ end
 --- @param bufnr number id of buffer with the diffed contents
 M.syntax_highlight_git_diff = function(bufnr)
     local diff_data_set = M.get_buf_diff_data_set(bufnr)
-    if (diff_data_set == nil) then return end
-    --- @cast diff_data_set DiffData[]
-
-    local git_root = vim.fn.systemlist('git rev-parse --show-toplevel')[1]
-    if vim.v.shell_error ~= 0 then
-        vim.notify("Not in a git repository", vim.log.levels.WARN)
-        return
-    end
+    local git_root = M.get_buf_git_root(bufnr)
 
     for _, diff_data in pairs(diff_data_set) do
         local source_path = git_root .. '/' .. diff_data.new_path
@@ -550,27 +537,26 @@ M.setup_delta_statuscolumn = function(bufnr, winid)
 end
 
 --- @param bufnr number
---- @return DiffData[] | nil
+--- @return DiffData[]
 M.get_buf_diff_data_set = function(bufnr)
     local delta_files_data = vim.b[bufnr].delta_diff_data_set
-
-    if delta_files_data == nil then
-        vim.notify("Buffer did not contain delta diff data", vim.log.levels.WARN)
-        return
-    end
+    assert(delta_files_data ~= nil, 'Buffer did not contain expected Delta.lua delta diff data')
     return delta_files_data
+end
+
+--- @param bufnr number
+--- @return string
+M.get_buf_git_root = function(bufnr)
+    local git_root = vim.b[bufnr].git_root
+    assert(git_root ~= nil, 'Buffer did not contain expected Delta.lua git root data')
+    return git_root
 end
 
 --- @param bufnr number
 --- @return DeltaArtifact[] | nil
 M.get_delta_artifact_data = function(bufnr)
     local delta_artifacts = vim.b[bufnr].delta_artifacts
-
-    if delta_artifacts == nil then
-        vim.notify("Buffer did not contain delta artifact data", vim.log.levels.WARN)
-        return
-    end
-
+    assert(delta_artifacts ~= nil, 'Buffer did not contain expected Delta.lua delta artifact data')
     return delta_artifacts
 end
 

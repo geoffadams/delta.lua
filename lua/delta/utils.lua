@@ -162,12 +162,14 @@ end
 --- To add a new git diff flag, insert a new entry here.
 --- @param effective DeltaOpts
 --- @param ref string
+--- @param git_root string
 --- @param path string | nil
 --- @return string[] cmd
-M.build_git_diff_cmd_with_flags = function(effective, ref, path)
-    local flags = {'git', 'diff'}
+M.build_git_diff_cmd_with_flags = function(effective, ref, git_root, path)
+    local flags = {'git', '-C', git_root, 'diff'}
     -- always
     table.insert(flags, '--full-index')
+
     if effective.context ~= nil then
         table.insert(flags, string.format('-U%d', effective.context))
     end
@@ -203,6 +205,17 @@ M.read_file_lines = function(filepath)
     file:close()
 
     return lines
+end
+
+--- gets the git root of the path; if there is no git root, then throws an error
+--- @param path string works on filepath or directory path
+--- @return string git_root
+M.get_git_root = function(path)
+    -- returns the directory containing the path
+    local file_dir = vim.fn.isdirectory(path) == 1 and path or vim.fn.fnamemodify(path, ':h')
+    local rev_parse_result = vim.system({ 'git', '-C', file_dir, 'rev-parse', '--show-toplevel' }):wait()
+    assert(rev_parse_result.code == 0, 'An error occurred while running git rev-parse - ' .. rev_parse_result.stderr)
+    return vim.trim(rev_parse_result.stdout)
 end
 
 return M
