@@ -34,6 +34,7 @@ commit - 305dd5d5c2d7138f10052ba2cbff8e3bb9b1bc76
 
 - support for git diff.mnemonicPrefix in path parsing - 99759f8ae4d2304214637de41b331043eb469b91
 - error handling for binary files - 9d3a6884cb60bc6e653ba9868b82bb26648d5aae
-- make the git diff api independent of the neovim cwd, unless no path is given - https://github.com/kokusenz/delta.lua/pull/4
+- make the git diff api independent of the neovim cwd, unless no path is given - 898b2dc31945846df3abf89b47251a6492feb90d
+- fix bad react file treesitter parser mapping - https://github.com/kokusenz/delta.lua/pull/5
 
 ## History
