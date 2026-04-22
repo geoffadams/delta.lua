@@ -102,18 +102,11 @@ M.get_treesitter_token_strings = function(text, lang)
     local cur_node_idx = 1
     local i = 1
     while i < #text + 1 do
-        local substr_found = 0
-        for j = i, #text, 1 do
-            local substring = text:sub(i, j)
-            if substring == node_strings[cur_node_idx] then
-                substr_found = j
-                break
-            end
-        end
-        if substr_found ~= 0 then
-            table.insert(strings, node_strings[cur_node_idx])
+        local current_node = node_strings[cur_node_idx]
+        if current_node and text:sub(i, i + #current_node - 1) == current_node then
+            table.insert(strings, current_node)
             cur_node_idx = cur_node_idx + 1
-            i = substr_found + 1
+            i = i + #current_node
         else
             table.insert(strings, text:sub(i, i))
             i = i + 1

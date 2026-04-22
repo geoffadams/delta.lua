@@ -170,6 +170,12 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
             end
         end
 
+        -- Resolve threshold before scoring so calculate_similarity can use it
+        -- for its length-ratio early exit, avoiding the full O(m×n) Levenshtein
+        -- for obviously dissimilar pairs.
+        opts = opts or {}
+        local max_line_distance = opts.highlighting.max_similarity_threshold or 0.6
+
         -- Calculate similarity scores for all possible pairs
         --- @type {added_line: number, removed_line: number, similarity: number}[]
         local all_pairs = {}
@@ -178,7 +184,8 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
             for _, potential_pair_line_num in ipairs(potential_pairs) do
                 local similarity = M.calculate_similarity(
                     adjacent_lines[diff_line_num].content,
-                    adjacent_lines[potential_pair_line_num].content
+                    adjacent_lines[potential_pair_line_num].content,
+                    max_line_distance
                 )
                 table.insert(all_pairs, {
                     added_line = diff_line_num,
@@ -195,9 +202,6 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
 
         -- Greedily assign pairs, ensuring each line is matched at most once
         local matched_lines = {}
-        opts = opts or {}
-        -- Use opts value or default to 0.6 (delta's default)
-        local max_line_distance = opts.highlighting.max_similarity_threshold or 0.6
         for _, pair in ipairs(all_pairs) do
             -- If neither line has been matched yet, match them
             if not matched_lines[pair.added_line] and not matched_lines[pair.removed_line] then
@@ -234,34 +238,43 @@ end
 M.get_adjacent_line_sets = function(hunk)
     --- @type table<number, DiffLine>[]
     local adjacent_lines_sets = {}
+    -- Reverse map: formatted_diff_line_num -> set index, for O(1) set lookup
+    -- instead of iterating every existing set for every line (was O(lines×sets)).
+    --- @type table<number, number>
+    local line_to_set_idx = {}
+
     for i = 1, #hunk.lines, 1 do
         local line = hunk.lines[i]
-        -- initialize first set as empty
         if line.line_type ~= 'context' then
-            -- theoretically, there should never be duplicate diff_line_num's in a input.
-            for _, adjacent_lines in ipairs(adjacent_lines_sets) do
-                if adjacent_lines[line.formatted_diff_line_num] ~= nil then
-                    adjacent_lines[line.formatted_diff_line_num] = line
-                    adjacent_lines[line.formatted_diff_line_num - 1] = adjacent_lines[line.formatted_diff_line_num - 1] or
-                        ''
-                    adjacent_lines[line.formatted_diff_line_num + 1] = adjacent_lines[line.formatted_diff_line_num + 1] or
-                        ''
-                    goto adjacent_line_set_found
-                end
+            local lnum = line.formatted_diff_line_num
+            -- Check whether a neighbouring line already belongs to a set
+            local set_idx = line_to_set_idx[lnum]
+                or line_to_set_idx[lnum - 1]
+                or line_to_set_idx[lnum + 1]
+
+            if set_idx then
+                local adjacent_lines = adjacent_lines_sets[set_idx]
+                adjacent_lines[lnum] = line
+                -- Ensure neighbour slots exist (used later for adjacency probing)
+                if adjacent_lines[lnum - 1] == nil then adjacent_lines[lnum - 1] = '' end
+                if adjacent_lines[lnum + 1] == nil then adjacent_lines[lnum + 1] = '' end
+                line_to_set_idx[lnum] = set_idx
+            else
+                -- Start a new adjacency set
+                --- @type table<number, DiffLine>
+                local adjacent_lines = {}
+                adjacent_lines[lnum]     = line
+                adjacent_lines[lnum - 1] = ''
+                adjacent_lines[lnum + 1] = ''
+                table.insert(adjacent_lines_sets, adjacent_lines)
+                set_idx = #adjacent_lines_sets
+                line_to_set_idx[lnum]     = set_idx
+                line_to_set_idx[lnum - 1] = line_to_set_idx[lnum - 1] or set_idx
+                line_to_set_idx[lnum + 1] = line_to_set_idx[lnum + 1] or set_idx
             end
-            -- if you couldn't find a set in adjacent_lines_sets for the line, then make a new set and add it
-            --- @type table<number, DiffLine>
-            local adjacent_lines = {}
-            adjacent_lines[line.formatted_diff_line_num] = line
-            adjacent_lines[line.formatted_diff_line_num - 1] = adjacent_lines[line.formatted_diff_line_num - 1] or ''
-            adjacent_lines[line.formatted_diff_line_num + 1] = adjacent_lines[line.formatted_diff_line_num + 1] or ''
-
-            table.insert(adjacent_lines_sets, adjacent_lines)
-
-            ::adjacent_line_set_found::
         end
     end
-    -- reiterate adjacent_lines_sets to remove empty strings
+    -- Remove placeholder empty strings
     for _, adjacent_lines in ipairs(adjacent_lines_sets) do
         for idx, value in pairs(adjacent_lines) do
             if value == '' then
@@ -275,12 +288,24 @@ end
 --- Levenshtein distance
 --- @param str1 string
 --- @param str2 string
+--- @param threshold number | nil minimum similarity to bother computing (default 0)
 --- @return number similarity (0.0 = completely different, 1.0 = identical)
-M.calculate_similarity = function(str1, str2)
+M.calculate_similarity = function(str1, str2, threshold)
     if str1 == str2 then return 1.0 end
     if str1 == "" or str2 == "" then return 0.0 end
 
     local len1, len2 = #str1, #str2
+
+    -- Early exit: if the length ratio alone makes it impossible to meet the
+    -- threshold, skip the full O(m×n) Levenshtein computation.
+    if threshold and threshold > 0 then
+        local min_len = math.min(len1, len2)
+        local max_len = math.max(len1, len2)
+        -- Maximum achievable similarity given the length difference
+        if (min_len / max_len) < threshold then
+            return 0.0
+        end
+    end
     local matrix = {}
 
     for i = 0, len1 do matrix[i] = { [0] = i } end
@@ -324,19 +349,20 @@ M.get_two_tier_highlights = function(str1, str2, language, use_treesitter)
     local formatted_str1 = table.concat(tokens_str1, "\n")
     local formatted_str2 = table.concat(tokens_str2, "\n")
 
-    --- @param idx number 1-indexed position of token
-    --- @return number | nil 0-indexed column starting position of token
-    local get_token_position = function(idx, tokens)
-        local running_sum = 0
+    -- precompute prefix sums of token lengths so each position lookup is O(1)
+    --- @param tokens string[]
+    --- @return number[] prefix_sums where prefix_sums[i] = index offset of tokens[i]
+    local build_prefix_sums = function(tokens)
+        local sums = {}
+        local running = 0
         for i, token in ipairs(tokens) do
-            if i == idx then
-                return running_sum
-            else
-                running_sum = running_sum + #token
-            end
+            sums[i] = running
+            running = running + #token
         end
-        return nil
+        return sums
     end
+    local prefix_sums1 = build_prefix_sums(tokens_str1)
+    local prefix_sums2 = build_prefix_sums(tokens_str2)
 
     local diff_fn = (vim.text and vim.text.diff) or vim.diff
     local diff = diff_fn(
@@ -357,7 +383,7 @@ M.get_two_tier_highlights = function(str1, str2, language, use_treesitter)
 
         -- highlight changed parts of str1 (added/green line)
         -- convert line numbers to character positions using token map
-        local token1_position = get_token_position(old_start, tokens_str1)
+        local token1_position = prefix_sums1[old_start]
         if old_count > 0 and token1_position then
             local end_position = token1_position
             for i = old_start, old_start + old_count - 1 do
@@ -372,7 +398,7 @@ M.get_two_tier_highlights = function(str1, str2, language, use_treesitter)
         end
 
         -- highlight changed parts of str2 (removed/red line)
-        local token2_position = get_token_position(new_start, tokens_str2)
+        local token2_position = prefix_sums2[new_start]
         if new_count > 0 and token2_position then
             local end_position = token2_position
             for i = new_start, new_start + new_count - 1 do
