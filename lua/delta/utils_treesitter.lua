@@ -116,23 +116,18 @@ M.get_treesitter_token_strings = function(text, lang)
     return strings
 end
 
+local METADATA_PREFIXES = {
+    spell = true,      -- @spell.lua, @spell
+    nospell = true,    -- @nospell.lua
+    conceal = true,    -- @conceal
+    definition = true, -- @definition (for LSP navigation)
+    scope = true,      -- @scope (for scope detection)
+}
+
 --- @param str string
 M.is_metadata_pattern = function(str)
-    local METADATA_PATTERNS = {
-        "^spell",      -- @spell.lua, @spell
-        "^nospell",    -- @nospell.lua
-        "^conceal",    -- @conceal
-        "^definition", -- @definition (for LSP navigation)
-        "^scope",      -- @scope (for scope detection)
-        "^scope",      -- @scope (for scope detection)
-    }
-
-    for _, pattern in ipairs(METADATA_PATTERNS) do
-        if str:match(pattern) then
-            return true
-        end
-    end
-    return false
+    local prefix = str:match("^(%a+)")
+    return prefix ~= nil and METADATA_PREFIXES[prefix] == true
 end
 
 --- The non treesitter version of splitting a string into its tokens, using basic lua pattern matching (whitespace as separators)

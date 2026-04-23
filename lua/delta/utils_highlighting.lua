@@ -70,7 +70,8 @@ M.get_highlights_file = function(file, opts)
         -- within one hunk, check to see what lines are adjacent to each other that are not context
         local adjacent_lines_sets = M.get_adjacent_line_sets(hunk)
         -- maybe map where key is line nuber, value is diff
-        local word_highlights = M.get_highlights(adjacent_lines_sets, opts, file.language, highlight_two_tiers_with_treesitter)
+        local word_highlights = M.get_highlights(adjacent_lines_sets, opts, file.language,
+            highlight_two_tiers_with_treesitter)
         for line_number, word_highlight in pairs(word_highlights) do
             local cur_highlights = highlights[line_number] or {}
             for _, highlight in ipairs(word_highlight) do
@@ -115,7 +116,7 @@ M.get_line_highlights = function(hunk)
 end
 
 --- get two tier highlights for a hunk
---- @param adjacent_lines_sets table<number, DiffLine>[]
+--- @param adjacent_lines_sets table<number, DiffLine>[] array of tables where key is the 1-indexed line number in the diff
 --- @param opts DeltaOpts | nil Optional configuration overrides
 --- @param language string | nil
 --- @param use_treesitter boolean | nil
@@ -133,7 +134,7 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
         -- found pairs shouldn't be calculated again
         local tested_pairs = {}
         for _, i in ipairs(keys) do
-            tested_pairs[i] = i
+            tested_pairs[i] = { [i] = true }
         end
 
         --- @type table<number, number[]>
@@ -147,21 +148,21 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
             local diffline1 = adjacent_lines[i]
             for _, j in ipairs(keys) do
                 --- @type DiffLine
-                if tested_pairs[i] == j then
+                if tested_pairs[i][j] == true then
                     goto continue
                 end
 
                 local diffline2 = adjacent_lines[j]
                 if (diffline1.new_line_num ~= nil and diffline2.old_line_num ~= nil) then
-                    tested_pairs[i] = j
-                    tested_pairs[j] = i
+                    tested_pairs[i][j] = true
+                    tested_pairs[j][i] = true
                     combinations[i] = combinations[i] or {}
                     table.insert(combinations[i], j)
                 end
 
                 if (diffline1.old_line_num ~= nil and diffline2.new_line_num ~= nil) then
-                    tested_pairs[i] = j
-                    tested_pairs[j] = i
+                    tested_pairs[i][j] = true
+                    tested_pairs[j][i] = true
                     combinations[j] = combinations[j] or {}
                     table.insert(combinations[j], i)
                 end
@@ -262,12 +263,12 @@ M.get_adjacent_line_sets = function(hunk)
             else
                 -- Start a new adjacency set
                 --- @type table<number, DiffLine>
-                local adjacent_lines = {}
+                local adjacent_lines     = {}
                 adjacent_lines[lnum]     = line
                 adjacent_lines[lnum - 1] = ''
                 adjacent_lines[lnum + 1] = ''
                 table.insert(adjacent_lines_sets, adjacent_lines)
-                set_idx = #adjacent_lines_sets
+                set_idx                   = #adjacent_lines_sets
                 line_to_set_idx[lnum]     = set_idx
                 line_to_set_idx[lnum - 1] = line_to_set_idx[lnum - 1] or set_idx
                 line_to_set_idx[lnum + 1] = line_to_set_idx[lnum + 1] or set_idx
@@ -291,6 +292,9 @@ end
 --- @param threshold number | nil minimum similarity to bother computing (default 0)
 --- @return number similarity (0.0 = completely different, 1.0 = identical)
 M.calculate_similarity = function(str1, str2, threshold)
+    assert(str1)
+    assert(str2)
+    assert(threshold)
     if str1 == str2 then return 1.0 end
     if str1 == "" or str2 == "" then return 0.0 end
 
@@ -306,26 +310,26 @@ M.calculate_similarity = function(str1, str2, threshold)
             return 0.0
         end
     end
-    local matrix = {}
-
-    for i = 0, len1 do matrix[i] = { [0] = i } end
-    for j = 0, len2 do matrix[0][j] = j end
-
+    local prev = {}
+    for j = 0, len2 do prev[j] = j end
+    local curr = {}
     for i = 1, len1 do
+        curr[0] = i
+        local row_min = i
         for j = 1, len2 do
-            local cost = (str1:sub(i, i) == str2:sub(j, j)) and 0 or 1
-            matrix[i][j] = math.min(
-                matrix[i - 1][j] + 1,       -- deletion
-                matrix[i][j - 1] + 1,       -- insertion
-                matrix[i - 1][j - 1] + cost -- substitution
-            )
+            local cost = (str1:byte(i) == str2:byte(j)) and 0 or 1
+            curr[j] = math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            if curr[j] < row_min then
+                row_min = curr[j]
+            end
         end
+        -- once the minimum value in a row already exceeds the
+        if row_min > (1.0 - threshold) * math.max(len1, len2) then
+            return 0.0
+        end
+        prev, curr = curr, prev
     end
-
-    local distance = matrix[len1][len2]
-    local max_len = math.max(len1, len2)
-
-    return 1.0 - (distance / max_len)
+    return 1.0 - (prev[len2] / math.max(len1, len2))
 end
 
 --- @param str1 string (the added/green line)
