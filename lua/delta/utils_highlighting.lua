@@ -254,35 +254,24 @@ M.get_adjacent_line_sets = function(hunk)
                 or line_to_set_idx[lnum + 1]
 
             if set_idx then
-                local adjacent_lines = adjacent_lines_sets[set_idx]
-                adjacent_lines[lnum] = line
-                -- Ensure neighbour slots exist (used later for adjacency probing)
-                if adjacent_lines[lnum - 1] == nil then adjacent_lines[lnum - 1] = '' end
-                if adjacent_lines[lnum + 1] == nil then adjacent_lines[lnum + 1] = '' end
-                line_to_set_idx[lnum] = set_idx
+                adjacent_lines_sets[set_idx][lnum] = line
             else
                 -- Start a new adjacency set
                 --- @type table<number, DiffLine>
-                local adjacent_lines     = {}
-                adjacent_lines[lnum]     = line
-                adjacent_lines[lnum - 1] = ''
-                adjacent_lines[lnum + 1] = ''
+                local adjacent_lines = {}
+                adjacent_lines[lnum] = line
                 table.insert(adjacent_lines_sets, adjacent_lines)
-                set_idx                   = #adjacent_lines_sets
-                line_to_set_idx[lnum]     = set_idx
-                line_to_set_idx[lnum - 1] = line_to_set_idx[lnum - 1] or set_idx
-                line_to_set_idx[lnum + 1] = line_to_set_idx[lnum + 1] or set_idx
+                set_idx = #adjacent_lines_sets
             end
+
+            -- Register this line and its neighbours in the reverse map so that
+            -- any line landing within one position merges into the same set.
+            line_to_set_idx[lnum]     = set_idx
+            line_to_set_idx[lnum - 1] = line_to_set_idx[lnum - 1] or set_idx
+            line_to_set_idx[lnum + 1] = line_to_set_idx[lnum + 1] or set_idx
         end
     end
-    -- Remove placeholder empty strings
-    for _, adjacent_lines in ipairs(adjacent_lines_sets) do
-        for idx, value in pairs(adjacent_lines) do
-            if value == '' then
-                adjacent_lines[idx] = nil
-            end
-        end
-    end
+
     return adjacent_lines_sets
 end
 
