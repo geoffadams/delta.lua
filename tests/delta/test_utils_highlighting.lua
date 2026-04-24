@@ -787,14 +787,34 @@ end
 local CalculateSimilarity = {}
 
 CalculateSimilarity.get_inputs = function(case)
-    return { str1 = case.str1, str2 = case.str2, is_random = case.is_random }
+    return { str1 = case.str1, str2 = case.str2, threshold = case.threshold, is_random = case.is_random }
 end
 
 CalculateSimilarity.calculate_similarity__property_cases = {
-    { name = 'identical strings',    str1 = 'hello',  str2 = 'hello' },
-    { name = 'empty vs non-empty',   str1 = '',       str2 = 'hello' },
-    { name = 'completely different', str1 = 'abc',    str2 = 'xyz' },
-    { name = 'random inputs',        is_random = true },
+    -- existing cases, now carry an explicit threshold
+    { name = 'identical strings',    str1 = 'hello',  str2 = 'hello',  threshold = 0.6 },
+    { name = 'empty vs non-empty',   str1 = '',       str2 = 'hello',  threshold = 0.6 },
+    { name = 'completely different', str1 = 'abc',    str2 = 'xyz',    threshold = 0.6 },
+    { name = 'random inputs',        is_random = true, threshold = 0.6 },
+
+    -- length-ratio early exit: min/max = 0.1 which is below threshold 0.6, must return 0.0
+    { name = 'length ratio below threshold',
+      str1 = 'a', str2 = 'aaaaaaaaaa', threshold = 0.6 },
+    -- length-ratio NOT triggered: ratio ~0.83 > 0.6, must compute properly
+    { name = 'length ratio above threshold computes normally',
+      str1 = 'hello', str2 = 'hellox', threshold = 0.6 },
+
+    -- row-min early exit: every char differs so row_min hits threshold fast
+    { name = 'row min early exit: all chars differ',
+      str1 = 'aaaa', str2 = 'bbbb', threshold = 0.5 },
+
+    -- known Levenshtein values to verify byte-level correctness
+    { name = 'known distance: kitten->sitting',
+      str1 = 'kitten', str2 = 'sitting', threshold = 0.0 },
+    { name = 'known distance: sunday->saturday',
+      str1 = 'sunday', str2 = 'saturday', threshold = 0.0 },
+    { name = 'known distance: single char mismatch',
+      str1 = 'a', str2 = 'b', threshold = 0.0 },
 }
 
 CalculateSimilarity.properties = {}
@@ -813,7 +833,7 @@ CalculateSimilarity.properties.result_in_range_0_to_1 = [[(function()
         end
         for trial = 1, 100 do
             local str1, str2 = random_string(), random_string()
-            local sim = M.calculate_similarity(str1, str2)
+            local sim = M.calculate_similarity(str1, str2, inputs.threshold)
             if type(sim) ~= 'number' then
                 return 'trial ' .. trial .. ': expected number, got ' .. type(sim)
             end
@@ -823,7 +843,7 @@ CalculateSimilarity.properties.result_in_range_0_to_1 = [[(function()
         end
         return true
     end
-    local sim = M.calculate_similarity(inputs.str1, inputs.str2)
+    local sim = M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold)
     return type(sim) == 'number' and sim >= 0 and sim <= 1
 end)()]]
 
@@ -831,7 +851,63 @@ CalculateSimilarity.properties.identical_strings_return_1 = [[(function()
     local inputs = _G.fixture.inputs
     -- assume: only identical-string cases
     if inputs.is_random or inputs.str1 ~= inputs.str2 then return true end
-    return M.calculate_similarity(inputs.str1, inputs.str2) == 1.0
+    return M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold) == 1.0
+end)()]]
+
+-- length-ratio early exit: when min_len/max_len < threshold the full matrix
+-- must be skipped and 0.0 returned.
+CalculateSimilarity.properties.length_ratio_early_exit_returns_zero = [[(function()
+    local inputs = _G.fixture.inputs
+    if inputs.is_random then return true end
+    if inputs.str1 ~= 'a' or inputs.str2 ~= 'aaaaaaaaaa' then return true end
+    -- min/max = 1/10 = 0.1, threshold = 0.6  →  must return 0.0
+    local sim = M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold)
+    return sim == 0.0
+end)()]]
+
+-- when length ratio is above threshold the function must not short-circuit
+-- and must return a non-zero value for strings that genuinely share content.
+CalculateSimilarity.properties.length_ratio_above_threshold_computes = [[(function()
+    local inputs = _G.fixture.inputs
+    if inputs.is_random then return true end
+    if inputs.str1 ~= 'hello' or inputs.str2 ~= 'hellox' then return true end
+    -- ratio = 5/6 ≈ 0.83 > 0.6, strings are very similar → result must be > 0
+    local sim = M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold)
+    return sim > 0.0
+end)()]]
+
+-- row-min early exit: once the minimum edit distance in any row already
+-- exceeds (1 - threshold) * max_len, we know the final similarity will be
+-- below the threshold and can abort without finishing the matrix.
+CalculateSimilarity.properties.row_min_early_exit_returns_zero = [[(function()
+    local inputs = _G.fixture.inputs
+    if inputs.is_random then return true end
+    if inputs.str1 ~= 'aaaa' or inputs.str2 ~= 'bbbb' then return true end
+    -- every character differs: row_min reaches 4 quickly.
+    -- (1 - 0.5) * 4 = 2  →  row_min(=4) > 2, triggers early exit.
+    local sim = M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold)
+    return sim == 0.0
+end)()]]
+
+-- verify byte-level correctness against known Levenshtein distances so that
+-- any future change from byte() back to sub() that alters results is caught.
+CalculateSimilarity.properties.known_levenshtein_values = [[(function()
+    local inputs = _G.fixture.inputs
+    if inputs.is_random then return true end
+    local known = {
+        -- distance 3, max_len 7  →  1 - 3/7
+        ['kitten:sitting']   = 1.0 - 3/7,
+        -- distance 3, max_len 8  →  1 - 3/8
+        ['sunday:saturday']  = 1.0 - 3/8,
+        -- distance 1, max_len 1  →  0.0
+        ['a:b']              = 0.0,
+    }
+    local key = inputs.str1 .. ':' .. inputs.str2
+    local expected = known[key]
+    if expected == nil then return true end  -- not a known-distance case, skip
+    local sim = M.calculate_similarity(inputs.str1, inputs.str2, inputs.threshold)
+    local eps = 1e-9
+    return math.abs(sim - expected) < eps
 end)()]]
 
 T['calculate_similarity() properties'] = new_set()

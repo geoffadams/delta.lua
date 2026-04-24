@@ -234,44 +234,47 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
 end
 
 --- in a hunk, get all the sets of adjacent lines. returns a list of maps where the key is the 1-indexed line number in the diff
+--- this function most likely has a lot of room for performance optimizations, but need to ensure they pass tests
 --- @param hunk Hunk
 --- @return table<number, DiffLine>[] adjacent_line_sets
 M.get_adjacent_line_sets = function(hunk)
     --- @type table<number, DiffLine>[]
     local adjacent_lines_sets = {}
-    -- Reverse map: formatted_diff_line_num -> set index, for O(1) set lookup
-    -- instead of iterating every existing set for every line (was O(lines×sets)).
-    --- @type table<number, number>
-    local line_to_set_idx = {}
-
     for i = 1, #hunk.lines, 1 do
         local line = hunk.lines[i]
+        -- initialize first set as empty
         if line.line_type ~= 'context' then
-            local lnum = line.formatted_diff_line_num
-            -- Check whether a neighbouring line already belongs to a set
-            local set_idx = line_to_set_idx[lnum]
-                or line_to_set_idx[lnum - 1]
-                or line_to_set_idx[lnum + 1]
-
-            if set_idx then
-                adjacent_lines_sets[set_idx][lnum] = line
-            else
-                -- Start a new adjacency set
-                --- @type table<number, DiffLine>
-                local adjacent_lines = {}
-                adjacent_lines[lnum] = line
-                table.insert(adjacent_lines_sets, adjacent_lines)
-                set_idx = #adjacent_lines_sets
+            -- theoretically, there should never be duplicate diff_line_num's in a input.
+            for _, adjacent_lines in ipairs(adjacent_lines_sets) do
+                if adjacent_lines[line.formatted_diff_line_num] ~= nil then
+                    adjacent_lines[line.formatted_diff_line_num] = line
+                    adjacent_lines[line.formatted_diff_line_num - 1] = adjacent_lines[line.formatted_diff_line_num - 1] or
+                        ''
+                    adjacent_lines[line.formatted_diff_line_num + 1] = adjacent_lines[line.formatted_diff_line_num + 1] or
+                        ''
+                    goto adjacent_line_set_found
+                end
             end
+            -- if you couldn't find a set in adjacent_lines_sets for the line, then make a new set and add it
+            --- @type table<number, DiffLine>
+            local adjacent_lines = {}
+            adjacent_lines[line.formatted_diff_line_num] = line
+            adjacent_lines[line.formatted_diff_line_num - 1] = adjacent_lines[line.formatted_diff_line_num - 1] or ''
+            adjacent_lines[line.formatted_diff_line_num + 1] = adjacent_lines[line.formatted_diff_line_num + 1] or ''
 
-            -- Register this line and its neighbours in the reverse map so that
-            -- any line landing within one position merges into the same set.
-            line_to_set_idx[lnum]     = set_idx
-            line_to_set_idx[lnum - 1] = line_to_set_idx[lnum - 1] or set_idx
-            line_to_set_idx[lnum + 1] = line_to_set_idx[lnum + 1] or set_idx
+            table.insert(adjacent_lines_sets, adjacent_lines)
+
+            ::adjacent_line_set_found::
         end
     end
-
+    -- reiterate adjacent_lines_sets to remove empty strings
+    for _, adjacent_lines in ipairs(adjacent_lines_sets) do
+        for idx, value in pairs(adjacent_lines) do
+            if value == '' then
+                adjacent_lines[idx] = nil
+            end
+        end
+    end
     return adjacent_lines_sets
 end
 
