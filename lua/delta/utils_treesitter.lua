@@ -102,18 +102,11 @@ M.get_treesitter_token_strings = function(text, lang)
     local cur_node_idx = 1
     local i = 1
     while i < #text + 1 do
-        local substr_found = 0
-        for j = i, #text, 1 do
-            local substring = text:sub(i, j)
-            if substring == node_strings[cur_node_idx] then
-                substr_found = j
-                break
-            end
-        end
-        if substr_found ~= 0 then
-            table.insert(strings, node_strings[cur_node_idx])
+        local current_node = node_strings[cur_node_idx]
+        if current_node and text:sub(i, i + #current_node - 1) == current_node then
+            table.insert(strings, current_node)
             cur_node_idx = cur_node_idx + 1
-            i = substr_found + 1
+            i = i + #current_node
         else
             table.insert(strings, text:sub(i, i))
             i = i + 1
@@ -123,23 +116,18 @@ M.get_treesitter_token_strings = function(text, lang)
     return strings
 end
 
+local METADATA_PREFIXES = {
+    spell = true,      -- @spell.lua, @spell
+    nospell = true,    -- @nospell.lua
+    conceal = true,    -- @conceal
+    definition = true, -- @definition (for LSP navigation)
+    scope = true,      -- @scope (for scope detection)
+}
+
 --- @param str string
 M.is_metadata_pattern = function(str)
-    local METADATA_PATTERNS = {
-        "^spell",      -- @spell.lua, @spell
-        "^nospell",    -- @nospell.lua
-        "^conceal",    -- @conceal
-        "^definition", -- @definition (for LSP navigation)
-        "^scope",      -- @scope (for scope detection)
-        "^scope",      -- @scope (for scope detection)
-    }
-
-    for _, pattern in ipairs(METADATA_PATTERNS) do
-        if str:match(pattern) then
-            return true
-        end
-    end
-    return false
+    local prefix = str:match("^(%a+)")
+    return prefix ~= nil and METADATA_PREFIXES[prefix] == true
 end
 
 --- The non treesitter version of splitting a string into its tokens, using basic lua pattern matching (whitespace as separators)

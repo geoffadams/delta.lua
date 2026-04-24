@@ -2,10 +2,24 @@
 
 All notable changes to delta.lua will be documented in this file.
 
-This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Because lua is not compiled for a release, I am just choosing a number and specifying which commit I am describing. I will increment a version if I feel like a feature is big enough to merit it.
+This project adheres (or tries) to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 I try to attach a commit to each log, but in the initial pr, I may use the pr instead. Will change the pr to the commit hash (if merged) in a later pr.
 
 ## Latest
+
+### [0.1.1] - 2026-04-24
+
+#### Added
+pull request - https://github.com/kokusenz/delta.lua/pull/6
+
+- `Significant performance optimizations for word level diff highlighting`: affected functions include `get_adjacent_line_sets`, `calculate_similarity`, `get_treesitter_token_strings`, `is_metadata_pattern`, and `get_two_tier_highlights`.
+- `test_git_diff_async`: new example test function in API that schedules each decoration step via `vim.schedule`, allowing the buffer to render in the window before syntax highlighting and diff highlighting is applied
+
+#### Fixes
+
+- `get_highlights` errored when opts.highlighting was nil. No longer errors. - https://github.com/kokusenz/delta.lua/pull/6
+
+## History
 
 ### [0.1.0] - 2026-03-16
 
@@ -36,5 +50,3 @@ commit - 305dd5d5c2d7138f10052ba2cbff8e3bb9b1bc76
 - error handling for binary files - 9d3a6884cb60bc6e653ba9868b82bb26648d5aae
 - make the git diff api independent of the neovim cwd, unless no path is given - 898b2dc31945846df3abf89b47251a6492feb90d
 - fix bad react file treesitter parser mapping - https://github.com/kokusenz/delta.lua/pull/5
-
-## History

@@ -54,6 +54,31 @@ M.test_git_diff = function(ref)
     M.setup_delta_statuscolumn(bufnr)
 end
 
+--- Test function for git diff workflow where each decorating function is called async. Allows the buf to start rendering
+--- before specifics are applied, but each function still suffers from cursor lock/textlock
+--- @param ref string
+M.test_git_diff_async = function(ref)
+    ref = ref or 'HEAD'
+    local cur_path
+    local ok, expanded = pcall(vim.fn.expand, '%:p')
+    if ok and expanded ~= '' then
+        cur_path = expanded
+    else
+        cur_path = nil
+    end
+
+    local bufnr = M.git_diff(ref, nil, {})
+    if bufnr == nil then
+        return -- Error already notified
+    end
+
+    vim.api.nvim_win_set_buf(0, bufnr)
+    vim.schedule(function() M.highlight_delta_artifacts(bufnr) end)
+    vim.schedule(function() M.syntax_highlight_git_diff(bufnr) end)
+    vim.schedule(function() M.diff_highlight_diff(bufnr) end)
+    vim.schedule(function() M.setup_delta_statuscolumn(bufnr) end)
+end
+
 --- Test function for text diff workflow. This is a typical sequence.
 --- @param s1 string
 --- @param s2 string
