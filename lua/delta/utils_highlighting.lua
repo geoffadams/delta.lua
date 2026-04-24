@@ -270,17 +270,17 @@ end
 M.calculate_similarity = function(str1, str2, threshold)
     assert(str1)
     assert(str2)
-    assert(threshold)
     if str1 == str2 then return 1.0 end
     if str1 == "" or str2 == "" then return 0.0 end
 
     local len1, len2 = #str1, #str2
 
+    local max_len
     -- Early exit: if the length ratio alone makes it impossible to meet the
     -- threshold, skip the full O(m×n) Levenshtein computation.
     if threshold and threshold > 0 then
         local min_len = math.min(len1, len2)
-        local max_len = math.max(len1, len2)
+        max_len = math.max(len1, len2)
         -- Maximum achievable similarity given the length difference
         if (min_len / max_len) < threshold then
             return 0.0
@@ -299,13 +299,13 @@ M.calculate_similarity = function(str1, str2, threshold)
                 row_min = curr[j]
             end
         end
-        -- once the minimum value in a row already exceeds the
-        if row_min > (1.0 - threshold) * math.max(len1, len2) then
+        -- once the minimum value in a row already exceeds the max edit distance budget, similarity guaranteed too high. no point continuing to iterate and calculate
+        if threshold and threshold > 0 and (row_min > (1.0 - threshold) * (max_len or math.max(len1, len2))) then
             return 0.0
         end
         prev, curr = curr, prev
     end
-    return 1.0 - (prev[len2] / math.max(len1, len2))
+    return 1.0 - (prev[len2] / (max_len or math.max(len1, len2)))
 end
 
 --- @param str1 string (the added/green line)
