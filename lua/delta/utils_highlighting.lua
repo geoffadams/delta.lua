@@ -175,7 +175,7 @@ M.get_highlights = function(adjacent_lines_sets, opts, language, use_treesitter)
         -- for its length-ratio early exit, avoiding the full O(m×n) Levenshtein
         -- for obviously dissimilar pairs.
         opts = opts or {}
-        local max_line_distance = opts.highlighting.max_similarity_threshold or 0.6
+        local max_line_distance = (opts.highlighting and opts.highlighting.max_similarity_threshold) or 0.6
 
         -- Calculate similarity scores for all possible pairs
         --- @type {added_line: number, removed_line: number, similarity: number}[]
