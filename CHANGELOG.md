@@ -10,14 +10,14 @@ I try to attach a commit to each log, but in the initial pr, I may use the pr in
 ### [0.1.1] - 2026-04-24
 
 #### Added
-pull request - 
+pull request - https://github.com/kokusenz/delta.lua/pull/6
 
 - `Significant performance optimizations for word level diff highlighting`: affected functions include `get_adjacent_line_sets`, `calculate_similarity`, `get_treesitter_token_strings`, `is_metadata_pattern`, and `get_two_tier_highlights`.
 - `test_git_diff_async`: new example test function in API that schedules each decoration step via `vim.schedule`, allowing the buffer to render in the window before syntax highlighting and diff highlighting is applied
 
 #### Fixes
 
-- `get_highlights` errored when opts.highlighting was nil. No longer errors.
+- `get_highlights` errored when opts.highlighting was nil. No longer errors. - https://github.com/kokusenz/delta.lua/pull/6
 
 ## History
 
