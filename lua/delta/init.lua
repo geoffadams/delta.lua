@@ -11,6 +11,8 @@ M.setup = function(opts)
     utils_highlighting.initialize_hl_groups()
 end
 
+utils_highlighting.initialize_hl_groups()
+
 -- API
 M.git_diff = diff.git_diff
 M.text_diff = diff.text_diff
@@ -134,6 +136,4 @@ M.test_patch_diff = function(use_current_file, is_git, language)
     M.setup_delta_statuscolumn(bufnr)
 end
 
----@type Delta
-_G.Delta = M
 return M
