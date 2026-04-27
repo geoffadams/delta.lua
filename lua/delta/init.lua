@@ -11,8 +11,7 @@ M.setup = function(opts)
     utils_highlighting.initialize_hl_groups()
 end
 
--- run once
-M.setup({})
+utils_highlighting.initialize_hl_groups()
 
 -- API
 M.git_diff = diff.git_diff
