@@ -7,19 +7,27 @@ I try to attach a commit to each log, but in the initial pr, I may use the pr in
 
 ## Latest
 
+### [0.1.2] - 2026-04-24
+
+#### Added
+pull request - https://github.com/kokusenz/delta.lua/pull/7
+
+- `Lazy Loading` - allow lazy loading of delta.lua, no longer eagerly requires in plugin/
+- `Delta global variable deprecation` - the intention of this variable was to make it easier for consumers to write code. With lazy loading, the time of require should be more intentional, and I don't think this variable serves any benefit. Kept temporarily, but will be in removed the unknown future. I've historically allowed around one month for breaking changes like this in deltaview.nvim; neovim plugins are faster paced than enterprise projects and there is expected to be a lot of flux, so I feel that's fair.
+
+## History
+
 ### [0.1.1] - 2026-04-24
 
 #### Added
-pull request - https://github.com/kokusenz/delta.lua/pull/6
+commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
 
 - `Significant performance optimizations for word level diff highlighting`: affected functions include `get_adjacent_line_sets`, `calculate_similarity`, `get_treesitter_token_strings`, `is_metadata_pattern`, and `get_two_tier_highlights`.
 - `test_git_diff_async`: new example test function in API that schedules each decoration step via `vim.schedule`, allowing the buffer to render in the window before syntax highlighting and diff highlighting is applied
 
 #### Fixes
 
-- `get_highlights` errored when opts.highlighting was nil. No longer errors. - https://github.com/kokusenz/delta.lua/pull/6
-
-## History
+- `get_highlights` errored when opts.highlighting was nil. No longer errors. - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
 
 ### [0.1.0] - 2026-03-16
 
@@ -49,4 +57,4 @@ commit - 305dd5d5c2d7138f10052ba2cbff8e3bb9b1bc76
 - support for git diff.mnemonicPrefix in path parsing - 99759f8ae4d2304214637de41b331043eb469b91
 - error handling for binary files - 9d3a6884cb60bc6e653ba9868b82bb26648d5aae
 - make the git diff api independent of the neovim cwd, unless no path is given - 898b2dc31945846df3abf89b47251a6492feb90d
-- fix bad react file treesitter parser mapping - https://github.com/kokusenz/delta.lua/pull/5
+- fix bad react file treesitter parser mapping - d123d2ec79c7b0fc68c3dac9cb78b17b993bd836
