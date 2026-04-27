@@ -7,10 +7,11 @@ I try to attach a commit to each log, but in the initial pr, I may use the pr in
 
 ## Latest
 
-### [0.1.2] - 2026-04-24
+### [0.1.2] - ongoing
+
+- initial commit - https://github.com/kokusenz/delta.lua/pull/7
 
 #### Added
-pull request - https://github.com/kokusenz/delta.lua/pull/7
 
 - `Lazy Loading` - allow lazy loading of delta.lua, no longer eagerly requires in plugin/
 - `Delta global variable deprecation` - the intention of this variable was to make it easier for consumers to write code. With lazy loading, the time of require should be more intentional, and I don't think this variable serves any benefit. Kept temporarily, but will be in removed the unknown future. I've historically allowed around one month for breaking changes like this in deltaview.nvim; neovim plugins are faster paced than enterprise projects and there is expected to be a lot of flux, so I feel that's fair.
@@ -19,36 +20,40 @@ pull request - https://github.com/kokusenz/delta.lua/pull/7
 
 ### [0.1.1] - 2026-04-24
 
-#### Added
-commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
+- initial commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
+- final commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
 
-- `Significant performance optimizations for word level diff highlighting`: affected functions include `get_adjacent_line_sets`, `calculate_similarity`, `get_treesitter_token_strings`, `is_metadata_pattern`, and `get_two_tier_highlights`.
-- `test_git_diff_async`: new example test function in API that schedules each decoration step via `vim.schedule`, allowing the buffer to render in the window before syntax highlighting and diff highlighting is applied
+#### Added
+
+- `Significant performance optimizations for word level diff highlighting` - affected functions include `get_adjacent_line_sets`, `calculate_similarity`, `get_treesitter_token_strings`, `is_metadata_pattern`, and `get_two_tier_highlights`.
+- `test_git_diff_async` - new example test function in API that schedules each decoration step via `vim.schedule`, allowing the buffer to render in the window before syntax highlighting and diff highlighting is applied
 
 #### Fixes
 
 - `get_highlights` errored when opts.highlighting was nil. No longer errors. - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
 
-### [0.1.0] - 2026-03-16
+### [0.1.0] - 2026-03-16 to 2026-04-17
+
+- initial commit - 305dd5d5c2d7138f10052ba2cbff8e3bb9b1bc76
+- final commit - d123d2ec79c7b0fc68c3dac9cb78b17b993bd836
 
 #### Added
-commit - 305dd5d5c2d7138f10052ba2cbff8e3bb9b1bc76 
 
-- `Delta.git_diff(ref, path, opts)` — create a diff buffer from a live git diff
-- `Delta.text_diff(s1, s2, language, opts)` — create a diff buffer from two strings via `vim.text.diff`
-- `Delta.patch_diff(diffstring, is_git_diff, language, opts)` — create a diff buffer from a unified diff/patch string
-- Two-tier diff highlighting: line-level background highlights for added/removed lines, and word-level highlights for changed tokens within paired lines
-- Treesitter syntax highlighting: `syntax_highlight_git_diff` (reads source files from disk) and `syntax_highlight_diff_set` (reconstructs content from diff data)
+- `Delta.git_diff(ref, path, opts)` - create a diff buffer from a live git diff
+- `Delta.text_diff(s1, s2, language, opts)` - create a diff buffer from two strings via `vim.text.diff`
+- `Delta.patch_diff(diffstring, is_git_diff, language, opts)` - create a diff buffer from a unified diff/patch string
+- Two-tier diff highlighting - line-level background highlights for added/removed lines, and word-level highlights for changed tokens within paired lines
+- Treesitter syntax highlighting - `syntax_highlight_git_diff` (reads source files from disk) and `syntax_highlight_diff_set` (reconstructs content from diff data)
 - Treesitter token-based word diffing, with Lua-pattern splitting as a fallback when no language is available
 - Similarity-based line pairing using Levenshtein distance before word-level highlighting is applied; configurable via `max_similarity_threshold`
-- `highlight_delta_artifacts` — highlights file titles, hunk headers, and separator lines
-- `setup_delta_statuscolumn(bufnr, winid)` — custom statuscolumn showing old/new line numbers coloured by line type; restores previous statuscolumn on buffer unload
+- `highlight_delta_artifacts` - highlights file titles, hunk headers, and separator lines
+- `setup_delta_statuscolumn(bufnr, winid)` - custom statuscolumn showing old/new line numbers coloured by line type; restores previous statuscolumn on buffer unload
 - Hunk headers with context function name extracted from the `@@` marker
 - Light and dark theme support; highlight groups automatically reapplied on colorscheme change
-- All eight highlight groups configurable per background via `setup()`: `DeltaDiffAddedLine`, `DeltaDiffRemovedLine`, `DeltaDiffAddedWord`, `DeltaDiffRemovedWord`, `DeltaTitle`, `DeltaLineNrAdded`, `DeltaLineNrRemoved`, `DeltaLineNrContext`
+- All eight highlight groups configurable per background via `setup()` - `DeltaDiffAddedLine`, `DeltaDiffRemovedLine`, `DeltaDiffAddedWord`, `DeltaDiffRemovedWord`, `DeltaTitle`, `DeltaLineNrAdded`, `DeltaLineNrRemoved`, `DeltaLineNrContext`
 - `Delta.parse` sub-table exposing `get_diff_data`, `get_diff_data_git`, and `get_language_from_filename`
 - `Delta` global variable as an alias for `require('delta')`
-- New-file support: `new_file` opt diffs untracked files against `/dev/null`
+- New-file support - `new_file` opt diffs untracked files against `/dev/null`
 - Absolute path normalisation when passing file paths into `git_diff`
 - `:checkhealth delta` integration
 
