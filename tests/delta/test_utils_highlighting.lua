@@ -45,7 +45,13 @@ local T = new_set({
                 package.loaded['delta.utils_treesitter'] = {
                     get_treesitter_highlight_captures = function(_content, _lang) return {} end,
                     get_treesitter_token_strings      = function(_str, _lang) return {} end,
-                    get_lua_pattern_token_strings     = function(_str) return {} end,
+                    get_lua_pattern_token_strings     = function(str)
+                        local tokens = {}
+                        for token in str:gmatch('[%w_]+') do
+                            table.insert(tokens, token)
+                        end
+                        return tokens
+                    end,
                 }
             ]])
             child.lua([[M = require('delta.utils_highlighting')]])
