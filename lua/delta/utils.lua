@@ -166,6 +166,7 @@ end
 M.build_git_diff_cmd_with_flags = function(effective, ref, git_root, path)
     local flags = {'git', '-C', git_root, 'diff'}
     -- always
+    table.insert(flags, '--no-ext-diff')
     table.insert(flags, '--full-index')
 
     if effective.context ~= nil then
