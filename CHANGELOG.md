@@ -9,7 +9,7 @@ I try to attach a commit to each log, but in the initial pr, I may use the pr in
 
 ### [0.1.3] - 2026-05-7 to ongoing
 
-- initial commit -
+- initial commit - https://github.com/kokusenz/delta.lua/pull/8
 
 #### Fixes
 - `--no-ext-diff` is passed as a flag into all git diff invocations, to avoid crashing with diff.external configuration (such as difftastic).
