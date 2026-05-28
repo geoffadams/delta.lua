@@ -7,18 +7,25 @@ I try to attach a commit to each log, but in the initial pr, I may use the pr in
 
 ## Latest
 
-### [0.1.2] - ongoing
+### [0.1.3] - 2026-05-7 to ongoing
 
-- initial commit - https://github.com/kokusenz/delta.lua/pull/7
+- initial commit - https://github.com/kokusenz/delta.lua/pull/8
+
+#### Fixes
+- `--no-ext-diff` is passed as a flag into all git diff invocations, to avoid crashing with diff.external configuration (such as difftastic).
+
+## History
+
+### [0.1.2] - 2026-04-27 to 2026-05-27
+
+- initial commit - 56f0135e9dd297a4f29b502d3f410fc1f1f5db16
 
 #### Added
 
 - `Lazy Loading` - allow lazy loading of delta.lua, no longer eagerly requires in plugin/
 - `Delta global variable deprecation` - the intention of this variable was to make it easier for consumers to write code. With lazy loading, the time of require should be more intentional, and I don't think this variable serves any benefit. Kept temporarily, but will be in removed the unknown future. I've historically allowed around one month for breaking changes like this in deltaview.nvim; neovim plugins are faster paced than enterprise projects and there is expected to be a lot of flux, so I feel that's fair.
 
-## History
-
-### [0.1.1] - 2026-04-24
+### [0.1.1] - 2026-04-24 to 2026-04-27
 
 - initial commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074
 - final commit - 7b6fa1b9dae21c0d28634b5a3bec3d53eaa30074

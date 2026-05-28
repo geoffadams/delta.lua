@@ -161,7 +161,8 @@ T['build_git_diff_cmd_with_flags()']['returns base command with --full-index alw
     eq(result[2], '-C')
     eq(result[3], '/repo')
     eq(result[4], 'diff')
-    eq(result[5], '--full-index')
+    eq(result[5], '--no-ext-diff')
+    eq(result[6], '--full-index')
 end
 
 T['build_git_diff_cmd_with_flags()']['inserts -U<n> context flag when context is set'] = function()
